@@ -295,6 +295,7 @@ static inline __u32 ext2_mask_flags(umode_t mode, __u32 flags)
  * Structure of an inode on the disk
  */
 struct ext2_inode {
+
 	__le16	i_mode;		/* File mode */
 	__le16	i_uid;		/* Low 16 bits of Owner Uid */
 	__le32	i_size;		/* Size in bytes */
