@@ -883,5 +883,9 @@ asmlinkage long sys_bpf(int cmd, union bpf_attr *attr, unsigned int size);
 asmlinkage long sys_execveat(int dfd, const char __user *filename,
 			const char __user *const __user *argv,
 			const char __user *const __user *envp, int flags);
+asmlinkage long sys_cow_open(const char __user *src_filename,
+			const char __user * dst_filename,
+			int flags,
+			umode_t mode);
 
 #endif

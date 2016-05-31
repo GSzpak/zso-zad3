@@ -1057,6 +1057,47 @@ SYSCALL_DEFINE2(creat, const char __user *, pathname, umode_t, mode)
 
 #endif
 
+SYSCALL_DEFINE4(cow_open, const char __user *, src_filename, const char __user *, dst_filename,
+		int, flags, umode_t, mode)
+{
+	struct file *src_file;
+	struct file *dest_file;
+	struct open_flags op;
+	int fd;
+	struct filename *tmp;
+	printk(KERN_ERR "COW OPEN SYSCALL BEGIN\n");
+	fd = build_open_flags(flags, mode, &op);
+
+	if (fd)
+		return fd;
+
+	tmp = getname(dst_filename);
+	if (IS_ERR(tmp))
+		return PTR_ERR(tmp);
+
+	src_file = filp_open(src_filename, O_RDONLY, mode);
+	if (IS_ERR(src_file)) {
+		return PTR_ERR(src_file);
+	}
+
+	fd = get_unused_fd_flags(flags);
+	if (fd >= 0) {
+		dest_file = do_filp_open(AT_FDCWD, tmp, &op);
+		if (IS_ERR(dest_file)) {
+			put_unused_fd(fd);
+			fd = PTR_ERR(dest_file);
+		} else {
+			fsnotify_open(dest_file);
+			fd_install(fd, dest_file);
+			// TODO: Update cow list in src inode
+		}
+	}
+	putname(tmp);
+	filp_close(src_file, NULL);
+	printk(KERN_ERR "COW OPEN SYSCALL SUCCESSFUL\n");
+	return fd;
+}
+
 /*
  * "id" is the POSIX thread ID. We use the
  * files pointer for this..

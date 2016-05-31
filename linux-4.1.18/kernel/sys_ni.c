@@ -243,3 +243,5 @@ cond_syscall(sys_bpf);
 
 /* execveat */
 cond_syscall(sys_execveat);
+
+cond_syscall(sys_cow_open);
