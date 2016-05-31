@@ -1056,7 +1056,7 @@ SYSCALL_DEFINE2(creat, const char __user *, pathname, umode_t, mode)
 }
 
 #endif
-
+/*
 SYSCALL_DEFINE4(cow_open, const char __user *, src_filename, const char __user *, dst_filename,
 		int, flags, umode_t, mode)
 {
@@ -1096,6 +1096,68 @@ SYSCALL_DEFINE4(cow_open, const char __user *, src_filename, const char __user *
 	filp_close(src_file, NULL);
 	printk(KERN_ERR "COW OPEN SYSCALL SUCCESSFUL\n");
 	return fd;
+}
+*/
+
+SYSCALL_DEFINE2(cow_open, const char __user *, src_file_path, const char __user *,
+				dst_file_path)
+{
+	struct path src_path;
+	struct filename *src_filename;
+	struct filename *dst_filename;
+	struct inode *src_inode;
+	struct inode *dst_inode;
+	long ret;
+	struct file *dst_file;
+	// TODO: check if both are from ext2
+	printk(KERN_ERR "COW OPEN SYSCALL BEGIN\n");
+
+	src_filename = getname(src_file_path);
+	if (IS_ERR(src_filename)) {
+		return PTR_ERR(src_filename);
+	}
+
+	dst_filename = getname(dst_file_path);
+	if (IS_ERR(dst_filename)) {
+		ret = PTR_ERR(dst_filename);
+		goto dst_getname_err;
+	}
+
+	ret = kern_path(src_filename->name, LOOKUP_FOLLOW, &src_path);
+	if (ret < 0) {
+		ret = -ENOENT;
+		goto src_file_err;
+	}
+	src_inode = src_path.dentry->d_inode;
+	// TODO: switch to ext2
+	if (strcmp(src_inode->i_sb->s_type->name, "9p") != 0) {
+		ret = -EINVAL;
+		goto src_file_err;
+	}
+
+	dst_file = filp_open(dst_filename->name, O_CREAT | O_WRONLY | O_TRUNC, O_WRONLY);
+	if (IS_ERR(dst_file)) {
+		ret = PTR_ERR(dst_file);
+		// TODO: ugly
+		goto src_file_err;
+	}
+	dst_inode = dst_file->f_inode;
+	filp_close(dst_file, NULL);
+	if (strcmp(dst_inode->i_sb->s_type->name, "9p") != 0) {
+		ret = -EINVAL;
+		// TODO: remove file
+		goto src_file_err;
+	}
+
+	printk(KERN_ERR "COW OPEN SRC: %ld\n", src_inode->i_ino);
+	printk(KERN_ERR "COW OPEN DST: %ld\n", dst_inode->i_ino);
+	return 0;
+
+src_file_err:
+	putname(dst_filename);
+dst_getname_err:
+	putname(src_filename);
+	return ret;
 }
 
 /*

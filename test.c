@@ -6,9 +6,9 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-int main()
+int main(int argc, char *argv[])
 {
-    long fd = syscall(359, "test.c", "test.c", O_CREAT | O_WRONLY | O_TRUNC, O_RDWR);
+    long fd = syscall(359, argv[1], argv[2]);
     printf("System call sys_hello returned %ld\n", fd);
     close(fd);
     return 0;
