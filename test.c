@@ -8,8 +8,12 @@
 
 int main(int argc, char *argv[])
 {
-    long fd = syscall(359, argv[1], argv[2]);
-    printf("System call sys_hello returned %ld\n", fd);
-    close(fd);
+    long src_fd, dst_fd;
+    src_fd = open(argv[1], O_RDONLY);
+    dst_fd = open(argv[2], O_RDONLY);
+    long syscall_res = syscall(359, src_fd, dst_fd);
+    printf("System call sys_hello returned %ld\n", syscall_res);
+    close(src_fd);
+    close(dst_fd);
     return 0;
 }

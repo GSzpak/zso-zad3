@@ -1099,65 +1099,51 @@ SYSCALL_DEFINE4(cow_open, const char __user *, src_filename, const char __user *
 }
 */
 
-SYSCALL_DEFINE2(cow_open, const char __user *, src_file_path, const char __user *,
-				dst_file_path)
+struct inode *get_inode_from_fd(unsigned int fd)
 {
-	struct path src_path;
-	struct filename *src_filename;
-	struct filename *dst_filename;
+	struct file *file;
+	struct fdtable *fdt;
+	struct files_struct *files;
+
+	files = current->files;
+	spin_lock(&files->file_lock);
+	fdt = files_fdtable(files);
+	if (fd >= fdt->max_fds) {
+		goto get_inode_from_fd_err;
+	}
+	file = fdt->fd[fd];
+	if (!file) {
+		goto get_inode_from_fd_err;
+	}
+	spin_unlock(&files->file_lock);
+	return file->f_inode;
+get_inode_from_fd_err:
+	spin_unlock(&files->file_lock);
+	return ERR_PTR(-EBADF);
+}
+
+SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
+{
 	struct inode *src_inode;
 	struct inode *dst_inode;
-	long ret;
-	struct file *dst_file;
-	// TODO: check if both are from ext2
-	printk(KERN_ERR "COW OPEN SYSCALL BEGIN\n");
 
-	src_filename = getname(src_file_path);
-	if (IS_ERR(src_filename)) {
-		return PTR_ERR(src_filename);
+	printk(KERN_ERR "COW OPEN BEGIN\n");
+	src_inode = get_inode_from_fd(src_fd);
+	if (IS_ERR(src_inode)) {
+		return PTR_ERR(src_inode);
 	}
-
-	dst_filename = getname(dst_file_path);
-	if (IS_ERR(dst_filename)) {
-		ret = PTR_ERR(dst_filename);
-		goto dst_getname_err;
+	dst_inode = get_inode_from_fd(dst_fd);
+	if (IS_ERR(dst_inode)) {
+		return PTR_ERR(dst_inode);
 	}
-
-	ret = kern_path(src_filename->name, LOOKUP_FOLLOW, &src_path);
-	if (ret < 0) {
-		ret = -ENOENT;
-		goto src_file_err;
-	}
-	src_inode = src_path.dentry->d_inode;
-	// TODO: switch to ext2
-	if (strcmp(src_inode->i_sb->s_type->name, "9p") != 0) {
-		ret = -EINVAL;
-		goto src_file_err;
-	}
-
-	dst_file = filp_open(dst_filename->name, O_CREAT | O_WRONLY | O_TRUNC, O_WRONLY);
-	if (IS_ERR(dst_file)) {
-		ret = PTR_ERR(dst_file);
-		// TODO: ugly
-		goto src_file_err;
-	}
-	dst_inode = dst_file->f_inode;
-	filp_close(dst_file, NULL);
-	if (strcmp(dst_inode->i_sb->s_type->name, "9p") != 0) {
-		ret = -EINVAL;
-		// TODO: remove file
-		goto src_file_err;
+	if (strcmp(src_inode->i_sb->s_type->name, "9p") != 0 ||
+			strcmp(dst_inode->i_sb->s_type->name, "9p") != 0) {
+		return -EINVAL;
 	}
 
 	printk(KERN_ERR "COW OPEN SRC: %ld\n", src_inode->i_ino);
 	printk(KERN_ERR "COW OPEN DST: %ld\n", dst_inode->i_ino);
 	return 0;
-
-src_file_err:
-	putname(dst_filename);
-dst_getname_err:
-	putname(src_filename);
-	return ret;
 }
 
 /*
