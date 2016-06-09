@@ -1143,7 +1143,7 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 			strcmp(dst_inode->i_sb->s_type->name, "ext2") != 0) {
 		return -EINVAL;
 	}
-
+	/*
 	printk(KERN_ERR "COW OPEN SRC ino: %ld\n", src_inode->i_ino);
 	printk(KERN_ERR "COW OPEN SRC size: %ld\n", src_inode->i_size);
 	printk(KERN_ERR "COW OPEN SRC bytes: %ld\n", src_inode->i_bytes);
@@ -1154,18 +1154,18 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	printk(KERN_ERR "COW OPEN DST bytes: %ld\n", dst_inode->i_bytes);
 	printk(KERN_ERR "COW OPEN DST blkbits: %ld\n", dst_inode->i_blkbits);
 	printk(KERN_ERR "COW OPEN DST blocks: %ld\n", dst_inode->i_blocks);
-
+	*/
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
-
 	spin_lock(&dst_inode->i_lock);
 	memcpy(dst_ext2_inode->i_data, src_ext2_inode->i_data,
 		   sizeof(dst_ext2_inode->i_data));
 	dst_inode->i_size = src_inode->i_size;
-	dst_inode->i_bytes = src_inode->i_size;
+	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
 	spin_unlock(&dst_inode->i_lock);
 	mark_inode_dirty(dst_inode);
+	wakeup_flusher_threads(0, WB_REASON_SYNC);
 	return 0;
 }
 
