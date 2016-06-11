@@ -1377,7 +1377,14 @@ struct inode *ext2_iget (struct super_block *sb, unsigned long ino)
 	ei->i_state = 0;
 	ei->i_block_group = (ino - 1) / EXT2_INODES_PER_GROUP(inode->i_sb);
 	ei->i_dir_start_lookup = 0;
-
+#ifdef CONFIG_EXT2_FS_COW
+	ei->i_cow_list_prev = le32_to_cpu(raw_inode->osd1.linux1.i_cow_list_prev);
+	ei->i_cow_list_next = le32_to_cpu(raw_inode->osd2.linux2.i_cow_list_next);
+	if (ei->i_cow_list_prev == 0 && ei->i_cow_list_next == 0) {
+		ei->i_cow_list_next = inode->i_ino;
+		ei->i_cow_list_prev = inode->i_ino;
+	}
+#endif
 	/*
 	 * NOTE! The in-memory inode i_data array is in little-endian order
 	 * even on big-endian machines: we do NOT byteswap the block numbers!
@@ -1508,7 +1515,10 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 			}
 		}
 	}
-	
+#ifdef CONFIG_EXT2_FS_COW
+    raw_inode->osd1.linux1.i_cow_list_prev = cpu_to_le32(ei->i_cow_list_prev);
+    raw_inode->osd2.linux2.i_cow_list_next = cpu_to_le32(ei->i_cow_list_next);
+#endif
 	raw_inode->i_generation = cpu_to_le32(inode->i_generation);
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode)) {
 		if (old_valid_dev(inode->i_rdev)) {

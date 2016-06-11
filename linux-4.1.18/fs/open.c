@@ -1123,10 +1123,12 @@ get_inode_from_fd_err:
 	return ERR_PTR(-EBADF);
 }
 
+#ifdef CONFIG_EXT2_FS_COW
 SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 {
 	struct inode *src_inode;
 	struct inode *dst_inode;
+	struct inode *next_inode;
 	struct ext2_inode_info *src_ext2_inode;
 	struct ext2_inode_info *dst_ext2_inode;
 
@@ -1139,36 +1141,56 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	if (IS_ERR(dst_inode)) {
 		return -EBADF;
 	}
+
 	if (strcmp(src_inode->i_sb->s_type->name, "ext2") != 0 ||
 			strcmp(dst_inode->i_sb->s_type->name, "ext2") != 0) {
 		return -EINVAL;
 	}
-	/*
-	printk(KERN_ERR "COW OPEN SRC ino: %ld\n", src_inode->i_ino);
-	printk(KERN_ERR "COW OPEN SRC size: %ld\n", src_inode->i_size);
-	printk(KERN_ERR "COW OPEN SRC bytes: %ld\n", src_inode->i_bytes);
-	printk(KERN_ERR "COW OPEN SRC blkbits: %ld\n", src_inode->i_blkbits);
-	printk(KERN_ERR "COW OPEN SRC blocks: %ld\n", src_inode->i_blocks);
-	printk(KERN_ERR "COW OPEN DST ino: %ld\n", dst_inode->i_ino);
-	printk(KERN_ERR "COW OPEN DST size: %ld\n", dst_inode->i_size);
-	printk(KERN_ERR "COW OPEN DST bytes: %ld\n", dst_inode->i_bytes);
-	printk(KERN_ERR "COW OPEN DST blkbits: %ld\n", dst_inode->i_blkbits);
-	printk(KERN_ERR "COW OPEN DST blocks: %ld\n", dst_inode->i_blocks);
-	*/
+
+	if (src_inode == dst_inode) {
+		return 0;
+	}
+
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
+	// TODO: deadlock possible
+	spin_lock(&src_inode->i_lock);
 	spin_lock(&dst_inode->i_lock);
+
 	memcpy(dst_ext2_inode->i_data, src_ext2_inode->i_data,
 		   sizeof(dst_ext2_inode->i_data));
 	dst_inode->i_size = src_inode->i_size;
 	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
+	if (src_inode_info->i_cow_list_next == src_inode->i_ino) {
+		WARN_ON(src_inode_info->i_cow_list_prev != src_inode->i_ino);
+		src_inode_info->i_cow_list_next = dst_inode->i_ino;
+		src_inode_info->i_cow_list_prev = dst_inode->i_ino;
+		dst_inode_info->i_cow_list_next = src_inode->i_ino;
+		dst_inode_info->i_cow_list_prev = src_inode->i_ino;
+	} else {
+		next_inode = ext2_iget(src->i_sb, src_info->i_cow_list_next);
+
+		//spin_lock(&next->i_lock);
+		src_ext2_inode->i_cow_list_next = dst_inode->i_ino;
+		dst_ext2_inode->i_cow_list_prev = src_inode->i_ino;
+		dst_ext2_inode->i_cow_list_next = next_inode->i_ino;
+		EXT2_I(next_inode)->i_cow_list_prev = dst_inode->i_ino;
+		//spin_unlock(&next->i_lock);
+		mark_inode_dirty(next_inode);
+		iput(next_inode);
+	}
+
+
 	spin_unlock(&dst_inode->i_lock);
+	spin_unlock(&src_inode->i_lock);
+
+	mark_inode_dirty(src_inode);
 	mark_inode_dirty(dst_inode);
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
 	return 0;
 }
-
+#endif
 /*
  * "id" is the POSIX thread ID. We use the
  * files pointer for this..
