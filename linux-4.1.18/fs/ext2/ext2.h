@@ -308,11 +308,7 @@ struct ext2_inode {
 	__le32	i_flags;	/* File flags */
 	union {
 		struct {
-#ifdef CONFIG_EXT2_FS_COW
 			__le32 i_cow_list_prev;
-#else
-			__le32  l_i_reserved1;
-#endif
 		} linux1;
 		struct {
 			__le32  h_i_translator;
@@ -333,11 +329,7 @@ struct ext2_inode {
 			__u16	i_pad1;
 			__le16	l_i_uid_high;	/* these 2 fields    */
 			__le16	l_i_gid_high;	/* were reserved2[0] */
-#ifdef CONFIG_EXT2_FS_COW
 			__le32 i_cow_list_next;
-#else
-			__le32  l_i_reserved2;
-#endif
 		} linux2;
 		struct {
 			__u8	h_i_frag;	/* Fragment number */
@@ -705,11 +697,8 @@ struct ext2_inode_info {
 #ifdef CONFIG_QUOTA
 	struct dquot *i_dquot[MAXQUOTAS];
 #endif
-
-#ifdef CONFIG_EXT2_FS_COW
 	unsigned int i_cow_list_next;
 	unsigned int i_cow_list_prev;
-#endif
 };
 
 /*
