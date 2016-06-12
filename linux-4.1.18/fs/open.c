@@ -1164,10 +1164,8 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_inode->i_size = src_inode->i_size;
 	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
-	if (src_ext2_inode->i_cow_list_next == src_inode->i_ino ||
-			src_ext2_inode->i_cow_list_next == 0) {
-		WARN_ON(src_ext2_inode->i_cow_list_prev != src_inode->i_ino &&
-				src_ext2_inode->i_cow_list_prev != 0);
+	if (src_ext2_inode->i_cow_list_next == src_inode->i_ino) {
+		WARN_ON(src_ext2_inode->i_cow_list_prev != src_inode->i_ino);
 		src_ext2_inode->i_cow_list_next = dst_inode->i_ino;
 		src_ext2_inode->i_cow_list_prev = dst_inode->i_ino;
 		dst_ext2_inode->i_cow_list_next = src_inode->i_ino;
