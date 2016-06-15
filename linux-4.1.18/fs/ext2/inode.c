@@ -274,7 +274,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		}
 		 */
 		*should_copy_cow_chain = 1;
-		//goto no_block;
+		goto no_block;
 	} else {
 		*should_copy_cow_chain = 0;
 	}
@@ -717,7 +717,7 @@ static int ext2_get_blocks(struct inode *inode,
 	int offsets[4];
 	Indirect chain[4];
 	Indirect cow_chain[4];
-	int should_copy_cow_chain;
+	int should_copy_cow_chain = 0;
 	Indirect *partial;
 	ext2_fsblk_t goal;
 	int indirect_blks;
@@ -857,20 +857,21 @@ static int ext2_get_blocks(struct inode *inode,
 
 	ext2_splice_branch(inode, iblock, partial, indirect_blks, count);
 
-	if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
-		ext2_copy_indirect_chain_blocks(chain, cow_chain, depth, offsets);
-	}
+	//if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
+	//	ext2_copy_indirect_chain_blocks(chain, cow_chain, depth, offsets);
+	//}
 
 	mutex_unlock(&ei->truncate_mutex);
 	set_buffer_new(bh_result);
 got_it:
 	printk(KERN_ERR "Got it: %d", chain[depth-1].key);
-	for (i = 0; i < depth; ++i) {
-		printk(KERN_ERR "chain[%d]: %p(%d) %d\n", i, chain[i].p, (int) chain[i].p, chain[i].key);
-	}
-	if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
-		map_bh(bh_result, inode->i_sb, le32_to_cpu(cow_chain[depth - 1].key));
-	}
+	//for (i = 0; i < depth; ++i) {
+	//	printk(KERN_ERR "chain[%d]: %p(%d) %d\n", i, chain[i].p, (int) chain[i].p, chain[i].key);
+	//}
+	//if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
+	//	printk(KERN_ERR "From %d to %d", cow_chain[depth - 1].key, chain[depth-1].key);
+	//	map_bh(bh_result, inode->i_sb, le32_to_cpu(cow_chain[depth - 1].key));
+	//}
 	map_bh(bh_result, inode->i_sb, le32_to_cpu(chain[depth - 1].key));
 
 	if (count > blocks_to_boundary) {
@@ -894,6 +895,9 @@ int ext2_get_block(struct inode *inode,
 				   int create)
 {
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
+	if (create) {
+		mpage_readpage(bh_result->b_page, ext2_get_block);
+	}
 	int ret = ext2_get_blocks(inode, iblock, max_blocks,
 			      bh_result, create);
 	printk (KERN_ERR "get_blocks ret %d", ret);

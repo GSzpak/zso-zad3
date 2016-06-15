@@ -1196,6 +1196,7 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 
 	mark_inode_dirty(src_inode);
 	mark_inode_dirty(dst_inode);
+	//write_inode_now(dst_inode, WB_SYNC_ALL);
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
 	return 0;
 }
