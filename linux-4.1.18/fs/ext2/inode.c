@@ -813,9 +813,6 @@ static int ext2_get_blocks(struct inode *inode,
 		}
 	}
 
-	if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain)
-		ext2_get_blocks(inode, iblock, 1, bh_result, 0);
-
 	/*
 	 * Okay, we need to do block allocation.  Lazily initialize the block
 	 * allocation info here if necessary
@@ -871,7 +868,11 @@ got_it:
 	for (i = 0; i < depth; ++i) {
 		printk(KERN_ERR "chain[%d]: %p(%d) %d\n", i, chain[i].p, (int) chain[i].p, chain[i].key);
 	}
+	if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
+		map_bh(bh_result, inode->i_sb, le32_to_cpu(cow_chain[depth - 1].key));
+	}
 	map_bh(bh_result, inode->i_sb, le32_to_cpu(chain[depth - 1].key));
+
 	if (count > blocks_to_boundary) {
 		set_buffer_boundary(bh_result);
 	}
