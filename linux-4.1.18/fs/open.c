@@ -31,6 +31,7 @@
 #include <linux/ima.h>
 #include <linux/dnotify.h>
 #include <linux/compat.h>
+#include <linux/buffer_head.h>
 #include "ext2/ext2.h"
 
 #include "internal.h"
@@ -1164,6 +1165,7 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_inode->i_size = src_inode->i_size;
 	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
+
 	if (src_ext2_inode->i_cow_list_next == src_inode->i_ino) {
 		WARN_ON(src_ext2_inode->i_cow_list_prev != src_inode->i_ino);
 		src_ext2_inode->i_cow_list_next = dst_inode->i_ino;
@@ -1182,8 +1184,13 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 		mark_inode_dirty(next_inode);
 		iput(next_inode);
 	}
+	// Invalidate everything
+	invalidate_mapping_pages(dst_inode->i_mapping, 0, -1);
+	invalidate_inode_buffers(dst_inode);
+	//sync_mapping_buffers(dst_inode->i_mapping);
+	//invalidate_bh_lrus();
 
-
+	//remove_inode_buffers(dst_inode);
 	//spin_unlock(&dst_inode->i_lock);
 	//spin_unlock(&src_inode->i_lock);
 

@@ -241,6 +241,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 	struct super_block *sb = inode->i_sb;
 	Indirect *p = chain;
 	struct buffer_head *bh;
+	int i;
 
 	*err = 0;
 	blocks_to_read = depth;
@@ -259,14 +260,21 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		read_unlock(&EXT2_I(inode)->i_meta_lock);
 		if (!p->key)
 			goto no_block;
+		for (i = 0; i < 5; i += 4) {
+			printk(KERN_ERR "%d", (int ) p->bh->b_data[i]);
+		}
 	}
 	// TODO: add is_block_shared impl
-	if (inode->i_ino == 14 && check_for_cow) {
+	if (inode->i_ino >= 14  && inode->i_ino <= 20 && check_for_cow) {
 		memcpy(chain_to_copy, chain, depth * sizeof(Indirect));
+		/*
+		while (--depth) {
+			*(p->p) = 0;
+			p->key = 0;
+		}
+		 */
 		*should_copy_cow_chain = 1;
-		p = chain;
-		printk(KERN_ERR "After get_branch\n");
-		goto no_block;
+		//goto no_block;
 	} else {
 		*should_copy_cow_chain = 0;
 	}
@@ -616,6 +624,7 @@ static int copy_data_block(struct super_block *sb, ext2_fsblk_t src_block,
 						   struct buffer_head *dst_bh)
 {
 	struct buffer_head *src_bh;
+	struct buffer_head *bh;
 	int i;
 	src_bh = sb_bread(sb, src_block);
 	if (!src_bh) {
@@ -624,16 +633,31 @@ static int copy_data_block(struct super_block *sb, ext2_fsblk_t src_block,
 	get_bh(dst_bh);
 	lock_buffer(dst_bh);
 	WARN_ON(src_bh->b_size != dst_bh->b_size);
-	printk(KERN_ERR "COPYING BLOCK %lld to block %lld",
-			src_bh->b_blocknr, dst_bh->b_blocknr);
+	printk(KERN_ERR "COPYING BLOCK %lld to block %lld, src: %p, dst: %p",
+			src_bh->b_blocknr, dst_bh->b_blocknr, src_bh->b_data, dst_bh->b_data);
 	for (i = 0; i < 5; ++i) {
-		printk(KERN_ERR "%c,%c ", src_bh->b_data[i], dst_bh->b_data[i]);
+		printk(KERN_ERR "%c", src_bh->b_data[i]);
+		printk(KERN_ERR "%c", dst_bh->b_data[i]);
 	}
+	//char temp[] = {'1', '2', '3', '4', '5', '\n'};
+	//memcpy(dst_bh->b_data, temp, sizeof(temp));
 	memcpy(dst_bh->b_data, src_bh->b_data, dst_bh->b_size);
 	for (i = 0; i < 5; ++i) {
-		printk(KERN_ERR "%c,%c ", src_bh->b_data[i], dst_bh->b_data[i]);
+		printk(KERN_ERR "%c", src_bh->b_data[i]);
+		printk(KERN_ERR "%c", dst_bh->b_data[i]);
 	}
-	//flush_dcache_page(dst_bh->b_page);
+	bh = src_bh->b_this_page;
+	while (bh != src_bh) {
+		printk(KERN_ERR "src bh list: %lld, %c", bh->b_blocknr, bh->b_data[0]);
+		bh = bh->b_this_page;
+	}
+	bh = dst_bh->b_this_page;
+	while (bh != dst_bh) {
+		printk(KERN_ERR "dst bh list: %lld, %c", bh->b_blocknr, bh->b_data[0]);
+		bh = bh->b_this_page;
+	}
+	printk(KERN_ERR "src state %ld, dst_state %ld", src_bh->b_state, dst_bh->b_state);
+	flush_dcache_page(dst_bh->b_page);
 	set_buffer_uptodate(dst_bh);
 	mark_buffer_dirty(dst_bh);
 	unlock_buffer(dst_bh);
@@ -687,7 +711,7 @@ static void ext2_copy_indirect_chain_blocks(Indirect chain[4],
 static int ext2_get_blocks(struct inode *inode,
 			   sector_t iblock, unsigned long maxblocks,
 			   struct buffer_head *bh_result,
-			   int create, ext2_fsblk_t *block_to_copy)
+			   int create)
 {
 	int err = -EIO;
 	int offsets[4];
@@ -789,6 +813,9 @@ static int ext2_get_blocks(struct inode *inode,
 		}
 	}
 
+	if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain)
+		ext2_get_blocks(inode, iblock, 1, bh_result, 0);
+
 	/*
 	 * Okay, we need to do block allocation.  Lazily initialize the block
 	 * allocation info here if necessary
@@ -832,10 +859,11 @@ static int ext2_get_blocks(struct inode *inode,
 	}
 
 	ext2_splice_branch(inode, iblock, partial, indirect_blks, count);
-	if (inode->i_ino == 14 && should_copy_cow_chain) {
+
+	if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
 		ext2_copy_indirect_chain_blocks(chain, cow_chain, depth, offsets);
-		*block_to_copy = le32_to_cpu(cow_chain[depth - 1].key);
 	}
+
 	mutex_unlock(&ei->truncate_mutex);
 	set_buffer_new(bh_result);
 got_it:
@@ -847,15 +875,7 @@ got_it:
 	if (count > blocks_to_boundary) {
 		set_buffer_boundary(bh_result);
 	}
-	/*
-	if (inode->i_ino == 14 && should_copy_cow_chain) {
-		err = copy_data_block(inode->i_sb, le32_to_cpu(cow_chain[depth - 1].key),
-							  bh_result);
-		if (err) {
-			goto cleanup;
-		}
-	}
-	 */
+
 	err = count;
 	/* Clean up and exit */
 	partial = chain + depth - 1;	/* the whole chain */
@@ -872,30 +892,10 @@ int ext2_get_block(struct inode *inode,
 				   struct buffer_head *bh_result,
 				   int create)
 {
-	ext2_fsblk_t block_to_copy = 0;
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
 	int ret = ext2_get_blocks(inode, iblock, max_blocks,
-			      bh_result, create, &block_to_copy);
-	if (block_to_copy) {
-		// TODO: don't ignore ret val
-		copy_data_block(inode->i_sb, block_to_copy, bh_result);
-	}
-	/*
-	if (inode->i_ino == 14 && create) {
-		char temp[] = {'6','7','8'};
-		lock_buffer(bh_result);
-		memcpy(bh_result->b_data, temp, sizeof(temp));
-		flush_dcache_page(bh_result->b_page);
-		set_buffer_uptodate(bh_result);
-		mark_buffer_dirty(bh_result);
-		unlock_buffer(bh_result);
-		int i;
-		for (i = 0; i < 7; ++i) {
-			printk(KERN_ERR "%c ", bh_result->b_data[i]);
-		}
-		sync_dirty_buffer(bh_result);
-	}
-	 */
+			      bh_result, create);
+	printk (KERN_ERR "get_blocks ret %d", ret);
 	if (ret > 0) {
 		bh_result->b_size = (ret << inode->i_blkbits);
 		ret = 0;
@@ -912,11 +912,13 @@ int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 static int ext2_writepage(struct page *page, struct writeback_control *wbc)
 {
+	printk(KERN_ERR "ext2_writepage");
 	return block_write_full_page(page, ext2_get_block, wbc);
 }
 
 static int ext2_readpage(struct file *file, struct page *page)
 {
+	printk(KERN_ERR "ext2_readpage");
 	return mpage_readpage(page, ext2_get_block);
 }
 
@@ -924,6 +926,7 @@ static int
 ext2_readpages(struct file *file, struct address_space *mapping,
 		struct list_head *pages, unsigned nr_pages)
 {
+	printk(KERN_ERR "ext2_readpages");
 	return mpage_readpages(mapping, pages, nr_pages, ext2_get_block);
 }
 
