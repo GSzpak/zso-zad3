@@ -235,7 +235,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 				 int *err,
 				 int check_for_cow,
 				 Indirect chain_to_copy[4],
-				 int *should_copy_cow_chain)
+				 int *is_cow)
 {
 	int blocks_to_read;
 	struct super_block *sb = inode->i_sb;
@@ -273,10 +273,10 @@ static Indirect *ext2_get_branch(struct inode *inode,
 			p->key = 0;
 		}
 		 */
-		*should_copy_cow_chain = 1;
+		*is_cow = 1;
 		goto no_block;
 	} else {
-		*should_copy_cow_chain = 0;
+		*is_cow = 0;
 	}
 	return NULL;
 
@@ -717,7 +717,7 @@ static int ext2_get_blocks(struct inode *inode,
 	int offsets[4];
 	Indirect chain[4];
 	Indirect cow_chain[4];
-	int should_copy_cow_chain = 0;
+	int is_cow = 0;
 	Indirect *partial;
 	ext2_fsblk_t goal;
 	int indirect_blks;
@@ -739,7 +739,7 @@ static int ext2_get_blocks(struct inode *inode,
 		return (err);
 
 	partial = ext2_get_branch(inode, depth, offsets, chain, &err, create,
-							  cow_chain, &should_copy_cow_chain);
+							  cow_chain, &is_cow);
 
 	for (i = 0; i < 4; ++i) {
 		printk(KERN_ERR "chain[%d]: %p(%d) %d\n", i, chain[i].p, (int) chain[i].p, chain[i].key);
@@ -748,7 +748,7 @@ static int ext2_get_blocks(struct inode *inode,
 	/* Simplest case - block found, no allocation needed */
 	if (!partial) {
 		/* When COW occurs, ext2_get_branch should never return NULL */
-		WARN_ON(should_copy_cow_chain);
+		WARN_ON(is_cow);
 		first_block = le32_to_cpu(chain[depth - 1].key);
 		clear_buffer_new(bh_result); /* What's this do? */
 		count++;
@@ -800,10 +800,10 @@ static int ext2_get_blocks(struct inode *inode,
 			partial--;
 		}
 		partial = ext2_get_branch(inode, depth, offsets, chain, &err, create,
-								  cow_chain, &should_copy_cow_chain);
+								  cow_chain, &is_cow);
 		if (!partial) {
 			/* When COW occurs, ext2_get_branch should never return NULL */
-			WARN_ON(should_copy_cow_chain);
+			WARN_ON(is_cow);
 			count++;
 			mutex_unlock(&ei->truncate_mutex);
 			if (err)
@@ -811,6 +811,13 @@ static int ext2_get_blocks(struct inode *inode,
 			clear_buffer_new(bh_result);
 			goto got_it;
 		}
+	}
+
+	/*
+	 * If it's COW, copy old block before allocating new branch
+	 */
+	if (is_cow) {
+		mpage_readpage(bh_result->b_page, ext2_get_block);
 	}
 
 	/*
@@ -857,7 +864,7 @@ static int ext2_get_blocks(struct inode *inode,
 
 	ext2_splice_branch(inode, iblock, partial, indirect_blks, count);
 
-	//if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
+	//if (inode->i_ino >= 14 && inode->i_ino <= 20 && is_cow) {
 	//	ext2_copy_indirect_chain_blocks(chain, cow_chain, depth, offsets);
 	//}
 
@@ -868,7 +875,7 @@ got_it:
 	//for (i = 0; i < depth; ++i) {
 	//	printk(KERN_ERR "chain[%d]: %p(%d) %d\n", i, chain[i].p, (int) chain[i].p, chain[i].key);
 	//}
-	//if (inode->i_ino >= 14 && inode->i_ino <= 20 && should_copy_cow_chain) {
+	//if (inode->i_ino >= 14 && inode->i_ino <= 20 && is_cow) {
 	//	printk(KERN_ERR "From %d to %d", cow_chain[depth - 1].key, chain[depth-1].key);
 	//	map_bh(bh_result, inode->i_sb, le32_to_cpu(cow_chain[depth - 1].key));
 	//}
@@ -895,9 +902,6 @@ int ext2_get_block(struct inode *inode,
 				   int create)
 {
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
-	if (create) {
-		mpage_readpage(bh_result->b_page, ext2_get_block);
-	}
 	int ret = ext2_get_blocks(inode, iblock, max_blocks,
 			      bh_result, create);
 	printk (KERN_ERR "get_blocks ret %d", ret);
