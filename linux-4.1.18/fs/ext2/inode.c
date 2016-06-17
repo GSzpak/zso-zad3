@@ -215,8 +215,7 @@ int get_shared_block_depth(struct inode *inode,
 	int is_cow;
 	int i;
 
-	if (inode_info->i_cow_list_next == 0 ||
-			inode_info->i_cow_list_next == inode->i_ino) {
+	if (inode_info->i_cow_list_next == inode->i_ino) {
 		return 0;
 	}
 
@@ -289,14 +288,16 @@ static Indirect *ext2_get_branch(struct inode *inode,
 								 Indirect chain[4],
 								 int *err,
 								 int check_for_cow,
+								 int *is_cow,
 								 Indirect chain_to_copy[4],
-								 int *is_cow)
+								 int *shared_block_depth)
 {
 	int blocks_to_read;
 	struct super_block *sb = inode->i_sb;
 	Indirect *p = chain;
 	struct buffer_head *bh;
 	int i;
+	int shared_block_depth;
 
 	*err = 0;
 	blocks_to_read = depth;
@@ -315,23 +316,25 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		read_unlock(&EXT2_I(inode)->i_meta_lock);
 		if (!p->key)
 			goto no_block;
-		for (i = 0; i < 5; i += 4) {
-			printk(KERN_ERR "%d", (int ) p->bh->b_data[i]);
-		}
 	}
-	// TODO: add is_block_shared impl
-	if (inode->i_ino >= 14  && inode->i_ino <= 20 && check_for_cow) {
-		memcpy(chain_to_copy, chain, depth * sizeof(Indirect));
-		/*
-		while (--depth) {
-			*(p->p) = 0;
-			p->key = 0;
+	if (check_for_cow) {
+		// TODO: synchronization
+		//read_lock(&EXT2_I(inode)->i_meta_lock);
+		//if (!verify_chain(chain, p))
+		//	goto changed;
+		*shared_block_depth = get_shared_block_depth(inode, depth, offsets, chain);
+		//read_unlock(&EXT2_I(inode)->i_meta_lock);
+		if (shared_block_depth > 0) {
+			memcpy(chain_to_copy, chain, depth * sizeof(Indirect));
+			*is_cow = 1;
+			partial = chain + *shared_block_depth - 1;
+			goto no_block;
+		} else if (shared_block_depth == 0) {
+			*is_cow = 0;
+		} else {
+			goto failure;
 		}
-		 */
-		*is_cow = 1;
 		goto no_block;
-	} else {
-		*is_cow = 0;
 	}
 	return NULL;
 
