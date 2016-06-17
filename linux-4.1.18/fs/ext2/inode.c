@@ -198,6 +198,61 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
+int get_shared_block_depth(struct inode *inode,
+						   int depth,
+						   int *offsets,
+						   Indirect chain_to_check)
+{
+	struct ext2_inode_info *inode_info = EXT2_I(inode);
+	struct inode *next;
+	unsigned long next_ino;
+	struct ext2_inode_info *next_info;
+	int res_depth = 5;
+	int err;
+	Indirect chain[4];
+	Indirect *partial;
+	/* Unused, as we are only reading chains */
+	int is_cow;
+	int i;
+
+	if (inode_info->i_cow_list_next == 0 ||
+			inode_info->i_cow_list_next == inode->i_ino) {
+		return 0;
+	}
+
+	next_ino = inode_info->i_cow_list_next;
+	while (next_ino != inode->i_ino) {
+		next = ext2_iget(inode->i_sb, next_ino);
+		next_info = EXT2_I(next);
+		partial = ext2_get_branch(next, depth, offsets, chain, &err, 0, NULL, &is_cow);
+		BUG_ON(is_cow);
+		if (err) {
+			i_put(next);
+			return err;
+		}
+		if (!partial) {
+			/* if partial != NULL, then block was not found */
+			for (i = 0; i < depth; ++i) {
+				if (chain[i].key == chain_to_check[i].key) {
+					/* First shared block detected */
+					if (i + 1 < res_depth) {
+						res_depth = i + 1;
+					}
+					break;
+				}
+			}
+		}
+		next_ino = next2_info->i_cow_list_next;
+		iput(next);
+	}
+	if (res_depth < 5) {
+		return res_depth;
+	} else {
+		/* Block is not shared */
+		return 0;
+	}
+}
+
 /**
  *	ext2_get_branch - read the chain of indirect blocks leading to data
  *	@inode: inode in question
@@ -229,13 +284,13 @@ static int ext2_block_to_path(struct inode *inode,
  *	the whole chain, all way to the data (returns %NULL, *err == 0).
  */
 static Indirect *ext2_get_branch(struct inode *inode,
-				 int depth,
-				 int *offsets,
-				 Indirect chain[4],
-				 int *err,
-				 int check_for_cow,
-				 Indirect chain_to_copy[4],
-				 int *is_cow)
+								 int depth,
+								 int *offsets,
+								 Indirect chain[4],
+								 int *err,
+								 int check_for_cow,
+								 Indirect chain_to_copy[4],
+								 int *is_cow)
 {
 	int blocks_to_read;
 	struct super_block *sb = inode->i_sb;
