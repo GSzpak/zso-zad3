@@ -1153,8 +1153,7 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
-	printk(KERN_ERR "src next: %d", src_ext2_inode->i_cow_list_next);
-	printk(KERN_ERR "src prev: %d", src_ext2_inode->i_cow_list_prev);
+	printk(KERN_ERR "src next: %ld", src_ext2_inode->i_cow_list_next);
 	// TODO: deadlock possible
 	// TODO: add ifdefs
 	//spin_lock(&src_inode->i_lock);
@@ -1166,24 +1165,7 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
 
-	if (src_ext2_inode->i_cow_list_next == src_inode->i_ino) {
-		WARN_ON(src_ext2_inode->i_cow_list_prev != src_inode->i_ino);
-		src_ext2_inode->i_cow_list_next = dst_inode->i_ino;
-		src_ext2_inode->i_cow_list_prev = dst_inode->i_ino;
-		dst_ext2_inode->i_cow_list_next = src_inode->i_ino;
-		dst_ext2_inode->i_cow_list_prev = src_inode->i_ino;
-	} else {
-		next_inode = ext2_iget(src_inode->i_sb, src_ext2_inode->i_cow_list_next);
-
-		//spin_lock(&next->i_lock);
-		src_ext2_inode->i_cow_list_next = dst_inode->i_ino;
-		dst_ext2_inode->i_cow_list_prev = src_inode->i_ino;
-		dst_ext2_inode->i_cow_list_next = next_inode->i_ino;
-		EXT2_I(next_inode)->i_cow_list_prev = dst_inode->i_ino;
-		//spin_unlock(&next->i_lock);
-		mark_inode_dirty(next_inode);
-		iput(next_inode);
-	}
+	add_inode_to_list(src_ext2_inode, dst_ext2_inode);
 	// Invalidate everything
 	invalidate_mapping_pages(dst_inode->i_mapping, 0, -1);
 	invalidate_inode_buffers(dst_inode);

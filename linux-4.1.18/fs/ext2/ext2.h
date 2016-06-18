@@ -767,6 +767,10 @@ extern void ext2_set_inode_flags(struct inode *inode);
 extern void ext2_get_inode_flags(struct ext2_inode_info *);
 extern int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		       u64 start, u64 len);
+void add_inode_to_list(struct ext2_inode_info *ext2_inode_on_list,
+				struct ext2_inode_info *ext2_new_inode);
+void remove_inode_from_list(struct inode *inode);
+
 
 /* ioctl.c */
 extern long ext2_ioctl(struct file *, unsigned int, unsigned long);
