@@ -216,8 +216,6 @@ int ext2_get_shared_block_depth(struct inode *inode,
 	int err;
 	Indirect chain[4];
 	Indirect *partial;
-	/* Unused, as we are only reading chains */
-	int is_cow = 0;
 	int i;
 
 	if (inode_info->i_cow_list_next == inode->i_ino) {
@@ -230,24 +228,29 @@ int ext2_get_shared_block_depth(struct inode *inode,
 		next = ext2_iget(inode->i_sb, next_ino);
 		next_info = EXT2_I(next);
 		partial = ext2_get_branch(next, depth, offsets, chain, &err, 0,
-								  &is_cow, NULL, NULL);
-		BUG_ON(is_cow);
+								  NULL, NULL, NULL);
 		if (err) {
+			while (partial > chain) {
+				brelse(partial->bh);
+				partial--;
+			}
 			iput(next);
 			return err;
 		}
-		if (!partial) {
-			for (i = 0; i < depth; ++i) {
-				//printk(KERN_ERR "chain_to_check[%d]: %dchain[%d]: %d\n", i, chain_to_check[i].key,
-				//		i, chain[i].key);
-				if (chain[i].key == chain_to_check[i].key) {
-					/* First shared block detected */
-					if (i + 1 < res_depth) {
-						res_depth = i + 1;
-					}
-					break;
+		for (i = 0; chain + i != partial; ++i) {
+			//printk(KERN_ERR "chain_to_check[%d]: %dchain[%d]: %d\n", i, chain_to_check[i].key,
+			//		i, chain[i].key);
+			if (chain[i].key == chain_to_check[i].key) {
+				/* First shared block detected */
+				if (i + 1 < res_depth) {
+					res_depth = i + 1;
 				}
+				break;
 			}
+		}
+		while (partial > chain) {
+			brelse(partial->bh);
+			partial--;
 		}
 		/* if partial != NULL, then block was not found and
 		 * therefore is not shared */
@@ -260,6 +263,25 @@ int ext2_get_shared_block_depth(struct inode *inode,
 	} else {
 		/* Block is not shared */
 		return 0;
+	}
+}
+
+int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
+{
+	Indirect chain[4];
+	int err;
+	int shared_block_depth;
+	ext2_get_branch(inode, depth, offsets, chain, &err, 0, NULL, NULL, NULL);
+	if (err) {
+		return -EIO;
+	}
+	shared_block_depth = ext2_get_shared_block_depth(inode, depth, offsets, chain);
+	if (shared_block_depth > 0) {
+		return 1;
+	} else if (shared_block_depth == 0) {
+		return 0;
+	} else {
+		return shared_block_depth;
 	}
 }
 
@@ -357,8 +379,6 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		} else {
 			goto failure;
 		}
-	} else {
-		*is_cow = 0;
 	}
 	return NULL;
 
@@ -1123,13 +1143,11 @@ static Indirect *ext2_find_shared(struct inode *inode,
 {
 	Indirect *partial, *p;
 	int k, err;
-	int cow;
-	int shared_block_depth;
 
 	*top = 0;
 	for (k = depth; k > 1 && !offsets[k-1]; k--)
 		;
-	partial = ext2_get_branch(inode, k, offsets, chain, &err, 0, &cow, NULL, &shared_block_depth);
+	partial = ext2_get_branch(inode, k, offsets, chain, &err, 0, NULL, NULL, NULL);
 	if (!partial)
 		partial = chain + k-1;
 	/*
@@ -1256,7 +1274,8 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	__le32 *i_data = EXT2_I(inode)->i_data;
 	struct ext2_inode_info *ei = EXT2_I(inode);
 	int addr_per_block = EXT2_ADDR_PER_BLOCK(inode->i_sb);
-	int offsets[4];
+	int offsets[4] = {0};
+	int offsets_copy[4] = {0};
 	Indirect chain[4];
 	Indirect *partial;
 	__le32 nr = 0;
@@ -1269,6 +1288,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	n = ext2_block_to_path(inode, iblock, offsets, NULL);
 	if (n == 0)
 		return;
+	memcpy(offsets_copy, offsets, sizeof(offsets_copy));
 
 	/*
 	 * From here we block out all ext2_get_block() callers who want to
@@ -1279,6 +1299,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	if (n == 1) {
 		ext2_free_data(inode, i_data+offsets[0],
 					i_data + EXT2_NDIR_BLOCKS);
+		//memcpy(offsets_copy, offsets, sizeof(offsets_copy));
 		goto do_indirects;
 	}
 
