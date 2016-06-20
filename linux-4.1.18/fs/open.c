@@ -1142,8 +1142,8 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 		return -EBADF;
 	}
 
-	if (strcmp(src_inode->i_sb->s_type->name, "ext2") != 0 ||
-			strcmp(dst_inode->i_sb->s_type->name, "ext2") != 0) {
+	if (memcmp(src_inode->i_sb->s_type->name, "ext2", 4)||
+			memcmp(dst_inode->i_sb->s_type->name, "ext2", 4)) {
 		return -EINVAL;
 	}
 
@@ -1154,7 +1154,6 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_ext2_inode = EXT2_I(dst_inode);
 	printk(KERN_ERR "src next: %ld", src_ext2_inode->i_cow_list_next);
 	// TODO: deadlock possible
-	// TODO: memcmp
 	//spin_lock(&src_inode->i_lock);
 	//spin_lock(&dst_inode->i_lock);
 
@@ -1165,7 +1164,6 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_inode->i_blocks = src_inode->i_blocks;
 
 	add_inode_to_list(src_ext2_inode, dst_ext2_inode);
-	// Invalidate everything
 	invalidate_mapping_pages(dst_inode->i_mapping, 0, -1);
 	invalidate_inode_buffers(dst_inode);
 	//sync_mapping_buffers(dst_inode->i_mapping);
@@ -1174,9 +1172,9 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	//remove_inode_buffers(dst_inode);
 	//spin_unlock(&dst_inode->i_lock);
 	//spin_unlock(&src_inode->i_lock);
-
 	mark_inode_dirty(src_inode);
 	mark_inode_dirty(dst_inode);
+	// TODO: check this
 	//write_inode_now(dst_inode, WB_SYNC_ALL);
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
 	return 0;

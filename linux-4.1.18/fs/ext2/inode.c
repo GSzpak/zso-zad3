@@ -202,7 +202,7 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
-int ext2_get_shared_block_depth(struct inode *inode,
+static int ext2_get_shared_block_depth(struct inode *inode,
 	   int depth,
 	   int *offsets,
 	   Indirect chain_to_check[4])
@@ -266,7 +266,7 @@ int ext2_get_shared_block_depth(struct inode *inode,
 	}
 }
 
-int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
+static int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
 {
 	Indirect chain[4];
 	int err;
@@ -339,13 +339,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 	struct super_block *sb = inode->i_sb;
 	Indirect *p = chain;
 	struct buffer_head *bh;
-	/* Used by get_shared_block_depth */
 	int *offsets_copy = offsets;
-
-	int i;
-//	for (i = 0; i < 4; ++i) {
-//		printk(KERN_ERR "offsets[%d]: %d\n", i, offsets[i]);
-//	}
 
 	*err = 0;
 	blocks_to_read = depth;
@@ -734,14 +728,13 @@ static void ext2_copy_indirect_chain_blocks(Indirect cow_chain[4],
 		int offsets[4])
 {
 	int i;
-	//printk(KERN_ERR "Begin copy indirect, depth: %d\n", depth);
 	for (i = shared_block_depth; i < depth; ++i) {
+		// TODO: locks
 		lock_buffer(chain[i].bh);
 		WARN_ON(cow_chain[i].bh->b_size != chain[i].bh->b_size);
-//		printk(KERN_ERR "COPYING BLOCK %lld to block %lld",
-//				cow_chain[i].bh->b_blocknr, chain[i].bh->b_blocknr);
 		WARN_ON(*chain[i].p != chain[i].key);
 		memcpy(chain[i].bh->b_data, cow_chain[i].bh->b_data, chain[i].bh->b_size);
+		/* Set proper block nr for new chain */
 		*chain[i].p = chain[i].key;
 		flush_dcache_page(chain[i].bh->b_page);
 		set_buffer_uptodate(chain[i].bh);
@@ -795,8 +788,6 @@ static int ext2_get_blocks(struct inode *inode,
 
 	depth = ext2_block_to_path(inode, iblock, offsets, &blocks_to_boundary);
 
-//	printk(KERN_ERR "get_blocks ino: %ld, iblock: %lld, create: %d, depth: %d",
-//			inode->i_ino, iblock, create, depth);
 	if (depth == 0)
 		return (err);
 
@@ -922,7 +913,6 @@ static int ext2_get_blocks(struct inode *inode,
 	ext2_splice_branch(inode, iblock, partial, indirect_blks, count);
 
 	if (check_for_cow && is_cow) {
-		//printk(KERN_ERR "Before copy indirect chain blocks");
 		ext2_copy_indirect_chain_blocks(cow_chain, chain, shared_block_depth, depth, offsets);
 	}
 
@@ -954,7 +944,6 @@ int ext2_get_block(struct inode *inode,
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
 	int ret = ext2_get_blocks(inode, iblock, max_blocks,
 			      bh_result, create);
-//	printk (KERN_ERR "get_block, create %d", create);
 	if (ret > 0) {
 		bh_result->b_size = (ret << inode->i_blkbits);
 		ret = 0;
