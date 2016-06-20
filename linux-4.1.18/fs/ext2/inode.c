@@ -1809,9 +1809,30 @@ int ext2_setattr(struct dentry *dentry, struct iattr *iattr)
 void add_inode_to_list(struct ext2_inode_info *ext2_inode_on_list,
 		struct ext2_inode_info *ext2_new_inode)
 {
+	struct inode *list_repr = ext2_iget(ext2_inode_on_list->vfs_inode.i_sb, ext2_inode_on_list->i_cow_list_repr);
+	struct ext2_inode_info *ext2_list_repr = EXT2_I(repr);
+	struct inode *new_repr = ext2_iget(ext2_new_inode->vfs_inode.i_sb, ext2_new_inode->i_cow_list_repr);
+	struct ext2_inode_info *ext2_new_repr = EXT2_I(new_repr);
+
+	if (ext2_inode_on_list->i_cow_list_repr == ext2_inode_on_list->vfs_inode.i_ino) {
+		repr = &ext2_inode_on_list->vfs_inode;
+		ext2_repr = ext2_inode_on_list;
+		should_put = 0;
+	} else {
+		repr = ext2_iget();
+		ext2_repr = EXT2_I(repr);
+	}
+
+	// lock ext2_new
+	// lock ext2_repr
 	ext2_new_inode->i_cow_list_next = ext2_inode_on_list->i_cow_list_next;
+	update_list_repr()
 	ext2_inode_on_list->i_cow_list_next = ext2_new_inode->vfs_inode.i_ino;
+	// unlock ext2_repr
+	// unlock ext2_new
 	// TODO: Update repr, locks
+	iput(new_repr);
+	iput(list_repr);
 }
 
 void remove_inode_from_list(struct inode *inode)
