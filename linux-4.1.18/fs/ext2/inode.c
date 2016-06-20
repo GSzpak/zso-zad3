@@ -1171,7 +1171,10 @@ static Indirect *ext2_find_shared(struct inode *inode,
 		p->p--;
 	} else {
 		*top = *p->p;
-		*p->p = 0;
+		depth = p - chain;
+		if (!ext2_is_block_shared(inode, offsets, depth)) {
+			*p->p = 0;
+		}
 	}
 	write_unlock(&EXT2_I(inode)->i_meta_lock);
 
@@ -1194,14 +1197,15 @@ no_top:
  *	stored as little-endian 32-bit) and updating @inode->i_blocks
  *	appropriately.
  */
-static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q)
+static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q,
+		int current_depth, int *offsets)
 {
 	unsigned long block_to_free = 0, count = 0;
 	unsigned long nr;
 
 	for ( ; p < q ; p++) {
 		nr = le32_to_cpu(*p);
-		if (nr) {
+		if (nr && !ext2_is_block_shared(inode, offsets, depth)) {
 			*p = 0;
 			/* accumulate blocks to free if they're contiguous */
 			if (count == 0)
@@ -1216,7 +1220,9 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q)
 				count = 1;
 			}
 		}
+		++offsets[depth - 1];
 	}
+	offsets[depth - 1] = 0;
 	if (count > 0) {
 		ext2_free_blocks (inode, block_to_free, count);
 		mark_inode_dirty(inode);
@@ -1234,7 +1240,8 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q)
  *	stored as little-endian 32-bit) and updating @inode->i_blocks
  *	appropriately.
  */
-static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int depth)
+static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int depth,
+		int current_depth, int *offsets)
 {
 	struct buffer_head * bh;
 	unsigned long nr;
@@ -1243,8 +1250,14 @@ static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int de
 		int addr_per_block = EXT2_ADDR_PER_BLOCK(inode->i_sb);
 		for ( ; p < q ; p++) {
 			nr = le32_to_cpu(*p);
-			if (!nr)
+			if (!nr) {
+				++offsets[current_depth];
 				continue;
+			}
+			if (ext2_is_block_shared(inode, offsets, current_depth + 1)) {
+				++offsets[current_depth];
+				continue;
+			}
 			*p = 0;
 			bh = sb_bread(inode->i_sb, nr);
 			/*
@@ -1260,10 +1273,11 @@ static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int de
 			ext2_free_branches(inode,
 					   (__le32*)bh->b_data,
 					   (__le32*)bh->b_data + addr_per_block,
-					   depth);
+					   depth, offsets, current_depth + 1);
 			bforget(bh);
 			ext2_free_blocks(inode, nr, 1);
 			mark_inode_dirty(inode);
+			++ofsets[current_depth];
 		}
 	} else
 		ext2_free_data(inode, p, q);
@@ -1280,6 +1294,9 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	Indirect *partial;
 	__le32 nr = 0;
 	int n;
+	int current_depth;
+	int current_offset;
+	__le32 *data_start;
 	long iblock;
 	unsigned blocksize;
 	blocksize = inode->i_sb->s_blocksize;
@@ -1288,7 +1305,6 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	n = ext2_block_to_path(inode, iblock, offsets, NULL);
 	if (n == 0)
 		return;
-	memcpy(offsets_copy, offsets, sizeof(offsets_copy));
 
 	/*
 	 * From here we block out all ext2_get_block() callers who want to
@@ -1297,9 +1313,9 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	mutex_lock(&ei->truncate_mutex);
 
 	if (n == 1) {
+		memcpy(offsets_copy, offsets, sizeof(offsets_copy));
 		ext2_free_data(inode, i_data+offsets[0],
-					i_data + EXT2_NDIR_BLOCKS);
-		//memcpy(offsets_copy, offsets, sizeof(offsets_copy));
+					i_data + EXT2_NDIR_BLOCKS, n, offsets_copy);
 		goto do_indirects;
 	}
 
@@ -1310,14 +1326,23 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 			mark_inode_dirty(inode);
 		else
 			mark_buffer_dirty_inode(partial->bh, inode);
-		ext2_free_branches(inode, &nr, &nr+1, (chain+n-1) - partial);
+		memcpy(offsets_copy, offsets, sizeof(offsets_copy));
+		current_depth = partial - chain;
+		offsets_copy[depth] = 0;
+		ext2_free_branches(inode, &nr, &nr+1, (chain+n-1) - partial,
+						   current_depth, offsets_copy);
 	}
 	/* Clear the ends of indirect blocks on the shared branch */
 	while (partial > chain) {
+		memcpy(offsets_copy, offsets, sizeof(offsets_copy));
+		data_start = (__le32 *) partial->bh->b_data;
+		current_offset = partial->p - data_start + 1;
+		current_depth = partial - chain;
+		offsets_copy[current_depth] = current_offset;
 		ext2_free_branches(inode,
 				   partial->p + 1,
 				   (__le32*)partial->bh->b_data+addr_per_block,
-				   (chain+n-1) - partial);
+				   (chain+n-1) - partial, current_depth, offsets_copy);
 		mark_buffer_dirty_inode(partial->bh, inode);
 		brelse (partial->bh);
 		partial--;
@@ -1328,28 +1353,43 @@ do_indirects:
 		default:
 			nr = i_data[EXT2_IND_BLOCK];
 			if (nr) {
-				i_data[EXT2_IND_BLOCK] = 0;
-				mark_inode_dirty(inode);
-				ext2_free_branches(inode, &nr, &nr+1, 1);
+				memcpy(offsets_copy, offsets, sizeof(offsets_copy));
+				offsets_copy[0] = EXT2_IND_BLOCK;
+				if (!ext2_is_block_shared(inode, offsets_copy, 1)) {
+					i_data[EXT2_IND_BLOCK] = 0;
+					mark_inode_dirty(inode);
+					ext2_free_branches(inode, &nr, &nr + 1, 1, 1, offsets_copy);
+				}
 			}
 		case EXT2_IND_BLOCK:
 			nr = i_data[EXT2_DIND_BLOCK];
 			if (nr) {
-				i_data[EXT2_DIND_BLOCK] = 0;
-				mark_inode_dirty(inode);
-				ext2_free_branches(inode, &nr, &nr+1, 2);
+				memcpy(offsets_copy, offsets, sizeof(offsets_copy));
+				offsets_copy[0] = EXT2_DIND_BLOCK;
+				if (!ext2_is_block_shared(inode, offsets_copy, 1)) {
+					i_data[EXT2_DIND_BLOCK] = 0;
+					mark_inode_dirty(inode);
+					ext2_free_branches(inode, &nr, &nr + 1, 2, 1, offsets_copy);
+				}
 			}
 		case EXT2_DIND_BLOCK:
 			nr = i_data[EXT2_TIND_BLOCK];
 			if (nr) {
-				i_data[EXT2_TIND_BLOCK] = 0;
-				mark_inode_dirty(inode);
-				ext2_free_branches(inode, &nr, &nr+1, 3);
+				memcpy(offsets_copy, offsets, sizeof(offsets_copy));
+				offsets_copy[0] = EXT2_TIND_BLOCK;
+				if (!ext2_is_block_shared(inode, offsets_copy, 1)) {
+					i_data[EXT2_TIND_BLOCK] = 0;
+					mark_inode_dirty(inode);
+					ext2_free_branches(inode, &nr, &nr + 1, 3, 1, offsets_copy);
+				}
 			}
 		case EXT2_TIND_BLOCK:
 			;
 	}
-
+	inode->i_size = offset;
+	//inode->i_bytes = inode->i_size % EXT2_BLOCK_SIZE(inode->i_sb);
+	//inode->i_blocks = inode->i_size / EXT2_BLOCK_SIZE(inode->i_sb);
+	mark_inode_dirty(inode);
 	ext2_discard_reservation(inode);
 
 	mutex_unlock(&ei->truncate_mutex);
