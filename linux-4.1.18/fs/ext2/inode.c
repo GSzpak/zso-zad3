@@ -202,7 +202,6 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
-// TODO: Fix get_branch docstring
 int ext2_get_shared_block_depth(struct inode *inode,
 	   int depth,
 	   int *offsets,
@@ -272,18 +271,29 @@ int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
 	Indirect chain[4];
 	int err;
 	int shared_block_depth;
-	ext2_get_branch(inode, depth, offsets, chain, &err, 0, NULL, NULL, NULL);
+	int ret;
+	Indirect *partial;
+
+	partial = ext2_get_branch(inode, depth, offsets, chain, &err, 0,
+							  NULL, NULL, NULL);
 	if (err) {
-		return -EIO;
+		ret = -EIO;
+		goto cleanup;
 	}
 	shared_block_depth = ext2_get_shared_block_depth(inode, depth, offsets, chain);
 	if (shared_block_depth > 0) {
-		return 1;
+		ret = 1;
 	} else if (shared_block_depth == 0) {
-		return 0;
+		ret = 0;
 	} else {
-		return shared_block_depth;
+		ret = shared_block_depth;
 	}
+cleanup:
+	while (partial > chain) {
+		brelse(partial->bh);
+		partial--;
+	}
+	return ret;
 }
 
 /**
@@ -293,7 +303,6 @@ int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
  *	@offsets: offsets of pointers in inode/indirect blocks
  *	@chain: place to store the result
  *	@err: here we store the error value
- *	@cow_block: block number to copy from if we do copy-on-write
  *
  *	Function fills the array of triples <key, p, bh> and returns %NULL
  *	if everything went OK or the pointer to the last filled triple
@@ -356,11 +365,6 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		if (!p->key)
 			goto no_block;
 	}
-
-//	printk(KERN_ERR "get branch for %ld", inode->i_ino);
-//	for (i = 0; i < 4; ++i) {
-//		printk(KERN_ERR "chain[%d]: %d\n", i, chain[i].key);
-//	}
 	if (check_for_cow) {
 		// TODO: synchronization
 		//read_lock(&EXT2_I(inode)->i_meta_lock);

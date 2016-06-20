@@ -1154,7 +1154,7 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_ext2_inode = EXT2_I(dst_inode);
 	printk(KERN_ERR "src next: %ld", src_ext2_inode->i_cow_list_next);
 	// TODO: deadlock possible
-	// TODO: add ifdefs
+	// TODO: memcmp
 	//spin_lock(&src_inode->i_lock);
 	//spin_lock(&dst_inode->i_lock);
 
