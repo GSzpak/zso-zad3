@@ -1150,7 +1150,6 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	if (src_inode == dst_inode) {
 		return 0;
 	}
-
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
 	printk(KERN_ERR "src next: %ld", src_ext2_inode->i_cow_list_next);
