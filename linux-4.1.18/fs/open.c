@@ -1119,7 +1119,7 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
 	ext2_sb = EXT2_SB(src_inode->i_sb);
-	// TODO: locks
+
 	mutex_lock(&ext2_sb->s_cow_list_mutex);
 
 	write_lock(&dst_ext2_inode->i_meta_lock);
@@ -1140,9 +1140,6 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 
 	mark_inode_dirty(src_inode);
 	mark_inode_dirty(dst_inode);
-	// TODO: check this
-	//write_inode_now(dst_inode, WB_SYNC_ALL);
-	wakeup_flusher_threads(0, WB_REASON_SYNC);
 
 	mutex_unlock(&ext2_sb->s_cow_list_mutex);
 
