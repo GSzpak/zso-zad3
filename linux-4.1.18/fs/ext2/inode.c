@@ -262,8 +262,6 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
-// TODO: locks, fix lists
-
 static loff_t ext2_get_full_tree_size(int depth,
 		unsigned long block_size, unsigned long addr_per_block)
 {
@@ -480,14 +478,8 @@ static Indirect *ext2_get_branch(struct inode *inode,
 			goto no_block;
 	}
 	if (check_for_cow) {
-		// TODO: synchronization
-		//read_lock(&EXT2_I(inode)->i_meta_lock);
-		//if (!verify_chain(chain, p))
-		//	goto changed;
 		*shared_block_depth = ext2_get_shared_block_depth(inode, depth,
 														  offsets_copy, chain);
-		//printk(KERN_ERR "Shared block depth for %ld: %d", inode->i_ino, *shared_block_depth);
-		//read_unlock(&EXT2_I(inode)->i_meta_lock);
 		if (*shared_block_depth > 0) {
 			memcpy(chain_to_copy, chain, depth * sizeof(Indirect));
 			*is_cow = 1;
@@ -848,9 +840,22 @@ static void ext2_copy_indirect_chain_blocks(Indirect cow_chain[4],
 		int offsets[4])
 {
 	int i;
+	struct buffer_head *first_to_lock;
+	struct buffer_head *second_to_lock;
 	for (i = shared_block_depth; i < depth; ++i) {
-		// TODO: locks
-		lock_buffer(chain[i].bh);
+		/* Sort by block number while locking to avoid deadlocks */
+		if (cow_chain[i].bh->b_blocknr < chain[i].bh->b_blocknr) {
+			first_to_lock = cow_chain[i].bh;
+			second_to_lock = chain[i].bh;
+		} else if (cow_chain[i].bh->b_blocknr == chain[i].bh->b_blocknr) {
+			continue;
+		} else {
+			first_to_lock = chain[i].bh;
+			second_to_lock = cow_chain[i].bh;
+		}
+
+		lock_buffer(first_to_lock);
+		lock_buffer(second_to_lock);
 		WARN_ON(cow_chain[i].bh->b_size != chain[i].bh->b_size);
 		WARN_ON(*chain[i].p != chain[i].key);
 		memcpy(chain[i].bh->b_data, cow_chain[i].bh->b_data, chain[i].bh->b_size);
@@ -859,7 +864,8 @@ static void ext2_copy_indirect_chain_blocks(Indirect cow_chain[4],
 		flush_dcache_page(chain[i].bh->b_page);
 		set_buffer_uptodate(chain[i].bh);
 		mark_buffer_dirty(chain[i].bh);
-		unlock_buffer(chain[i].bh);
+		unlock_buffer(second_to_lock);
+		unlock_buffer(first_to_lock);
 		sync_dirty_buffer(chain[i].bh);
 	}
 }
