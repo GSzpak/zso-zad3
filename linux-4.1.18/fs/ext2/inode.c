@@ -122,6 +122,8 @@ void remove_inode_from_list(struct inode *inode)
 	ext2_prev = EXT2_I(prev);
 	ext2_next->i_cow_list_prev = prev->i_ino;
 	ext2_prev->i_cow_list_next = next->i_ino;
+	ext2_inode->i_cow_list_next = inode->i_ino;
+	ext2_inode->i_cow_list_prev = inode->i_ino;
 
 	mark_inode_dirty(next);
 	mark_inode_dirty(prev);
@@ -350,10 +352,6 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 		partial = ext2_get_branch(next, depth, offsets, chain, &err, 0,
 								  NULL, NULL, NULL);
 		if (err) {
-			while (partial > chain) {
-				brelse(partial->bh);
-				partial--;
-			}
 			iput(next);
 			mutex_unlock(&ext2_sb->s_cow_list_mutex);
 			return err;
@@ -366,10 +364,6 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 				}
 				break;
 			}
-		}
-		while (partial > chain) {
-			brelse(partial->bh);
-			partial--;
 		}
 	next:
 		next_ino = next_info->i_cow_list_next;
@@ -389,30 +383,22 @@ static int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
 	Indirect chain[4];
 	int err;
 	int shared_block_depth;
-	int ret;
 	Indirect *partial;
 
 	partial = ext2_get_branch(inode, depth, offsets, chain, &err, 0,
 							  NULL, NULL, NULL);
 	if (err) {
-		ret = -EIO;
-		goto cleanup;
+		return -EIO;
 	}
 	depth = partial - chain + 1;
 	shared_block_depth = ext2_get_shared_block_depth(inode, depth, offsets, chain);
 	if (shared_block_depth > 0) {
-		ret = 1;
+		return 1;
 	} else if (shared_block_depth == 0) {
-		ret = 0;
+		return 0;
 	} else {
-		ret = shared_block_depth;
+		return shared_block_depth;
 	}
-cleanup:
-	while (partial > chain) {
-		brelse(partial->bh);
-		partial--;
-	}
-	return ret;
 }
 
 /**
