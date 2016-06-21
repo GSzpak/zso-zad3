@@ -1101,7 +1101,7 @@ SYSCALL_DEFINE4(cow_open, const char __user *, src_filename, const char __user *
 }
 */
 
-struct inode *get_inode_from_fd(unsigned int fd)
+struct file *get_file_from_fd(unsigned int fd)
 {
 	struct file *file;
 	struct fdtable *fdt;
@@ -1118,30 +1118,36 @@ struct inode *get_inode_from_fd(unsigned int fd)
 		goto get_inode_from_fd_err;
 	}
 	spin_unlock(&files->file_lock);
-	return file->f_inode;
+	return file;
 get_inode_from_fd_err:
 	spin_unlock(&files->file_lock);
 	return ERR_PTR(-EBADF);
 }
 
-SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
+SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 {
+	struct file *src_file;
+	struct file *dst_file;
 	struct inode *src_inode;
 	struct inode *dst_inode;
-	struct inode *next_inode;
 	struct ext2_inode_info *src_ext2_inode;
 	struct ext2_inode_info *dst_ext2_inode;
 
 	printk(KERN_ERR "COW OPEN BEGIN\n");
-	src_inode = get_inode_from_fd(src_fd);
-	if (IS_ERR(src_inode)) {
+	src_file = get_file_from_fd(src_fd);
+	if (IS_ERR(src_file)) {
 		return -EBADF;
 	}
-	dst_inode = get_inode_from_fd(dst_fd);
-	if (IS_ERR(dst_inode)) {
+	dst_file = get_file_from_fd(dst_fd);
+	if (IS_ERR(dst_file)) {
 		return -EBADF;
 	}
-
+	if (!(dst_file->f_mode & FMODE_WRITE) ||
+			!(dst_file->f_mode & FMODE_CAN_WRITE)) {
+		return -EINVAL;
+	}
+	src_inode = src_file->f_inode;
+	dst_inode = dst_file->f_inode;
 	if (memcmp(src_inode->i_sb->s_type->name, "ext2", 4)||
 			memcmp(dst_inode->i_sb->s_type->name, "ext2", 4)) {
 		return -EINVAL;
@@ -1152,7 +1158,6 @@ SYSCALL_DEFINE2(cow_open, unsigned int, src_fd, unsigned int, dst_fd)
 	}
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
-	printk(KERN_ERR "src next: %ld", src_ext2_inode->i_cow_list_next);
 	// TODO: deadlock possible
 	//spin_lock(&src_inode->i_lock);
 	//spin_lock(&dst_inode->i_lock);
