@@ -71,14 +71,15 @@ static void ext2_write_failed(struct address_space *mapping, loff_t to)
 	}
 }
 
+/*
+ * Assumes, that s_cow_list mutex is already held
+ */
 void add_inode_to_list(struct inode *inode, struct ext2_inode_info *ext2_inode,
 					   struct inode *new_inode, struct ext2_inode_info *ext2_new_inode)
 {
 	struct inode *next;
 	struct ext2_inode_info *ext2_next;
-	struct ext2_sb_info *ext2_sb = EXT2_SB(inode->i_sb);
 
-	mutex_lock(&ext2_sb->s_cow_list_mutex);
 	if (ext2_inode->i_cow_list_next == inode->i_ino) {
 		WARN_ON(ext2_inode->i_cow_list_prev != inode->i_ino);
 		ext2_inode->i_cow_list_next = new_inode->i_ino;
@@ -95,11 +96,13 @@ void add_inode_to_list(struct inode *inode, struct ext2_inode_info *ext2_inode,
 		mark_inode_dirty(next);
 		iput(next);
 	}
-	mutex_unlock(&ext2_sb->s_cow_list_mutex);
 	mark_inode_dirty(inode);
 	mark_inode_dirty(new_inode);
 }
 
+/*
+ * Assumes, that s_cow_list mutex is already held
+ */
 void remove_inode_from_list(struct inode *inode)
 {
 	struct inode *next;
@@ -107,12 +110,9 @@ void remove_inode_from_list(struct inode *inode)
 	struct ext2_inode_info *ext2_next;
 	struct ext2_inode_info *ext2_prev;
 	struct ext2_inode_info *ext2_inode = EXT2_I(inode);
-	struct ext2_sb_info *ext2_sb = EXT2_SB(inode->i_sb);
 
-	mutex_lock(&ext2_sb->s_cow_list_mutex);
 	if (ext2_inode->i_cow_list_next == inode->i_ino) {
 		WARN_ON(ext2_inode->i_cow_list_prev != inode->i_ino);
-		mutex_unlock(&ext2_sb->s_cow_list_mutex);
 		return;
 	}
 
@@ -122,8 +122,6 @@ void remove_inode_from_list(struct inode *inode)
 	ext2_prev = EXT2_I(prev);
 	ext2_next->i_cow_list_prev = prev->i_ino;
 	ext2_prev->i_cow_list_next = next->i_ino;
-
-	mutex_unlock(&ext2_sb->s_cow_list_mutex);
 
 	mark_inode_dirty(next);
 	mark_inode_dirty(prev);
@@ -138,6 +136,7 @@ void ext2_evict_inode(struct inode * inode)
 {
 	struct ext2_block_alloc_info *rsv;
 	int want_delete = 0;
+	struct ext2_sb_info *ext2_sb = EXT2_SB(inode->i_sb);
 
 	if (!inode->i_nlink && !is_bad_inode(inode)) {
 		want_delete = 1;
@@ -158,7 +157,9 @@ void ext2_evict_inode(struct inode * inode)
 		inode->i_size = 0;
 		if (inode->i_blocks)
 			ext2_truncate_blocks(inode, 0);
+		mutex_lock(&ext2_sb->s_cow_list_mutex);
 		remove_inode_from_list(inode);
+		mutex_unlock(&ext2_sb->s_cow_list_mutex);
 		ext2_xattr_delete_inode(inode);
 	}
 

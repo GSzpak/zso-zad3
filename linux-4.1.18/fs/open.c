@@ -1090,6 +1090,7 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 	struct inode *dst_inode;
 	struct ext2_inode_info *src_ext2_inode;
 	struct ext2_inode_info *dst_ext2_inode;
+	struct ext2_sb_info *ext2_sb;
 
 	printk(KERN_ERR "COW OPEN BEGIN\n");
 	src_file = get_file_from_fd(src_fd);
@@ -1106,7 +1107,7 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 	}
 	src_inode = src_file->f_inode;
 	dst_inode = dst_file->f_inode;
-	if (memcmp(src_inode->i_sb->s_type->name, "ext2", 4)||
+	if (memcmp(src_inode->i_sb->s_type->name, "ext2", 4) ||
 			memcmp(dst_inode->i_sb->s_type->name, "ext2", 4)) {
 		return -EINVAL;
 	}
@@ -1117,31 +1118,34 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
+	ext2_sb = EXT2_SB(src_inode->i_sb);
 	// TODO: locks
+	mutex_lock(&ext2_sb->s_cow_list_mutex);
 
-	//spin_lock(&src_inode->i_lock);
-	//spin_lock(&dst_inode->i_lock);
-
+	write_lock(&dst_ext2_inode->i_meta_lock);
 	memcpy(dst_ext2_inode->i_data, src_ext2_inode->i_data,
-		   sizeof(dst_ext2_inode->i_data));
+			sizeof(dst_ext2_inode->i_data));
+	write_unlock(&dst_ext2_inode->i_meta_lock);
+
+	spin_lock(&dst_inode->i_lock);
 	dst_inode->i_size = src_inode->i_size;
 	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
+	spin_unlock(&dst_inode->i_lock);
 
+	remove_inode_from_list(dst_inode);
 	add_inode_to_list(src_inode, src_ext2_inode, dst_inode, dst_ext2_inode);
 	invalidate_mapping_pages(dst_inode->i_mapping, 0, -1);
 	invalidate_inode_buffers(dst_inode);
-	//sync_mapping_buffers(dst_inode->i_mapping);
-	//invalidate_bh_lrus();
 
-	//remove_inode_buffers(dst_inode);
-	//spin_unlock(&dst_inode->i_lock);
-	//spin_unlock(&src_inode->i_lock);
 	mark_inode_dirty(src_inode);
 	mark_inode_dirty(dst_inode);
 	// TODO: check this
 	//write_inode_now(dst_inode, WB_SYNC_ALL);
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
+
+	mutex_unlock(&ext2_sb->s_cow_list_mutex);
+
 	return 0;
 }
 
