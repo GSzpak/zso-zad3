@@ -71,6 +71,66 @@ static void ext2_write_failed(struct address_space *mapping, loff_t to)
 	}
 }
 
+void add_inode_to_list(struct inode *inode, struct ext2_inode_info *ext2_inode,
+					   struct inode *new_inode, struct ext2_inode_info *ext2_new_inode)
+{
+	struct inode *next;
+	struct ext2_inode_info *ext2_next;
+	struct ext2_sb_info *ext2_sb = EXT2_SB(inode->i_sb);
+
+	mutex_lock(&ext2_sb->s_cow_list_mutex);
+	if (ext2_inode->i_cow_list_next == inode->i_ino) {
+		WARN_ON(ext2_inode->i_cow_list_prev != inode->i_ino);
+		ext2_inode->i_cow_list_next = new_inode->i_ino;
+		ext2_inode->i_cow_list_prev = new_inode->i_ino;
+		ext2_new_inode->i_cow_list_next = inode->i_ino;
+		ext2_new_inode->i_cow_list_prev = inode->i_ino;
+	} else {
+		next = ext2_iget(inode->i_sb, ext2_inode->i_cow_list_next);
+		ext2_next = EXT2_I(next);
+		ext2_next->i_cow_list_prev = new_inode->i_ino;
+		ext2_new_inode->i_cow_list_next = next->i_ino;
+		ext2_inode->i_cow_list_next = new_inode->i_ino;
+		ext2_new_inode->i_cow_list_prev = inode->i_ino;
+		mark_inode_dirty(next);
+		iput(next);
+	}
+	mutex_unlock(&ext2_sb->s_cow_list_mutex);
+	mark_inode_dirty(inode);
+	mark_inode_dirty(new_inode);
+}
+
+void remove_inode_from_list(struct inode *inode)
+{
+	struct inode *next;
+	struct inode *prev;
+	struct ext2_inode_info *ext2_next;
+	struct ext2_inode_info *ext2_prev;
+	struct ext2_inode_info *ext2_inode = EXT2_I(inode);
+	struct ext2_sb_info *ext2_sb = EXT2_SB(inode->i_sb);
+
+	mutex_lock(&ext2_sb->s_cow_list_mutex);
+	if (ext2_inode->i_cow_list_next == inode->i_ino) {
+		WARN_ON(ext2_inode->i_cow_list_prev != inode->i_ino);
+		mutex_unlock(&ext2_sb->s_cow_list_mutex);
+		return;
+	}
+
+	next = ext2_iget(inode->i_sb, ext2_inode->i_cow_list_next);
+	prev = ext2_iget(inode->i_sb, ext2_inode->i_cow_list_prev);
+	ext2_next = EXT2_I(next);
+	ext2_prev = EXT2_I(prev);
+	ext2_next->i_cow_list_prev = prev->i_ino;
+	ext2_prev->i_cow_list_next = next->i_ino;
+
+	mutex_unlock(&ext2_sb->s_cow_list_mutex);
+
+	mark_inode_dirty(next);
+	mark_inode_dirty(prev);
+	iput(prev);
+	iput(next);
+}
+
 /*
  * Called at the last iput() if i_nlink is zero.
  */
@@ -1656,7 +1716,10 @@ struct inode *ext2_iget(struct super_block *sb, unsigned long ino)
 	if (ei->i_cow_list_next == 0) {
 		ei->i_cow_list_next = inode->i_ino;
 	}
-	ei->i_cow_list_repr = le32_to_cpu(raw_inode->osd2.linux2.i_cow_list_repr);
+	ei->i_cow_list_prev = le32_to_cpu(raw_inode->osd2.linux2.i_cow_list_prev);
+	if (ei->i_cow_list_prev == 0) {
+		ei->i_cow_list_prev = inode->i_ino;
+	}
 
 	/*
 	 * NOTE! The in-memory inode i_data array is in little-endian order
@@ -1789,7 +1852,7 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 		}
 	}
     raw_inode->osd1.linux1.i_cow_list_next = cpu_to_le32(ei->i_cow_list_next);
-    raw_inode->osd2.linux2.i_cow_list_repr = cpu_to_le32(ei->i_cow_list_repr);
+    raw_inode->osd2.linux2.i_cow_list_prev = cpu_to_le32(ei->i_cow_list_prev);
 	raw_inode->i_generation = cpu_to_le32(inode->i_generation);
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode)) {
 		if (old_valid_dev(inode->i_rdev)) {
@@ -1851,52 +1914,4 @@ int ext2_setattr(struct dentry *dentry, struct iattr *iattr)
 	mark_inode_dirty(inode);
 
 	return error;
-}
-
-void add_inode_to_list(struct ext2_inode_info *ext2_inode_on_list,
-		struct ext2_inode_info *ext2_new_inode)
-{
-	struct inode *list_repr = ext2_iget(ext2_inode_on_list->vfs_inode.i_sb, ext2_inode_on_list->i_cow_list_repr);
-	struct ext2_inode_info *ext2_list_repr = EXT2_I(list_repr);
-	struct inode *new_repr = ext2_iget(ext2_new_inode->vfs_inode.i_sb, ext2_new_inode->i_cow_list_repr);
-	struct ext2_inode_info *ext2_new_repr = EXT2_I(new_repr);
-
-	// lock ext2_new
-	// lock ext2_repr
-	ext2_new_inode->i_cow_list_next = ext2_inode_on_list->i_cow_list_next;
-	ext2_inode_on_list->i_cow_list_next = ext2_new_inode->vfs_inode.i_ino;
-	// unlock ext2_repr
-	// unlock ext2_new
-	// TODO: Update repr, locks
-	iput(new_repr);
-	iput(list_repr);
-}
-
-void remove_inode_from_list(struct inode *inode)
-{
-	struct ext2_inode_info *ext2_inode = EXT2_I(inode);
-	struct inode *next_inode;
-	struct ext2_inode_info *ext2_next_inode;
-	unsigned long next_ino;
-
-	if (ext2_inode->i_cow_list_next == inode->i_ino) {
-		return;
-	}
-
-
-	next_ino = ext2_inode->i_cow_list_next;
-
-	while (next_ino != inode->i_ino) {
-		next_inode = ext2_iget(inode->i_sb, next_ino);
-		ext2_next_inode = EXT2_I(next_inode);
-		next_ino = ext2_next_inode->i_cow_list_next;
-		if (next_ino != inode->i_ino) {
-			iput(next_inode);
-		}
-	}
-
-	ext2_next_inode->i_cow_list_next = ext2_inode->i_cow_list_next;
-	ext2_inode->i_cow_list_next = inode->i_ino;
-	iput(next_inode);
-	// TODO: update repr, locks
 }

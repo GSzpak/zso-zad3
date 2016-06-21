@@ -111,6 +111,7 @@ struct ext2_sb_info {
 	 * of the mount options.
 	 */
 	spinlock_t s_lock;
+	struct mutex s_cow_list_mutex;
 };
 
 static inline spinlock_t *
@@ -329,7 +330,7 @@ struct ext2_inode {
 			__u16	i_pad1;
 			__le16	l_i_uid_high;	/* these 2 fields    */
 			__le16	l_i_gid_high;	/* were reserved2[0] */
-			__le32 i_cow_list_repr;
+			__le32 i_cow_list_prev;
 		} linux2;
 		struct {
 			__u8	h_i_frag;	/* Fragment number */
@@ -698,7 +699,7 @@ struct ext2_inode_info {
 	struct dquot *i_dquot[MAXQUOTAS];
 #endif
 	unsigned long i_cow_list_next;
-	unsigned long i_cow_list_repr;
+	unsigned long i_cow_list_prev;
 };
 
 /*
@@ -767,8 +768,8 @@ extern void ext2_set_inode_flags(struct inode *inode);
 extern void ext2_get_inode_flags(struct ext2_inode_info *);
 extern int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		       u64 start, u64 len);
-void add_inode_to_list(struct ext2_inode_info *ext2_inode_on_list,
-				struct ext2_inode_info *ext2_new_inode);
+void add_inode_to_list(struct inode *inode, struct ext2_inode_info *ext2_inode,
+				struct inode *new_inode, struct ext2_inode_info *ext2_new_inode);
 void remove_inode_from_list(struct inode *inode);
 
 

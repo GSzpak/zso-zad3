@@ -1116,7 +1116,8 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 	}
 	src_ext2_inode = EXT2_I(src_inode);
 	dst_ext2_inode = EXT2_I(dst_inode);
-	// TODO: deadlock possible
+	// TODO: locks
+
 	//spin_lock(&src_inode->i_lock);
 	//spin_lock(&dst_inode->i_lock);
 
@@ -1126,7 +1127,7 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 	dst_inode->i_bytes = src_inode->i_bytes;
 	dst_inode->i_blocks = src_inode->i_blocks;
 
-	add_inode_to_list(src_ext2_inode, dst_ext2_inode);
+	add_inode_to_list(src_inode, src_ext2_inode, dst_inode, dst_ext2_inode);
 	invalidate_mapping_pages(dst_inode->i_mapping, 0, -1);
 	invalidate_inode_buffers(dst_inode);
 	//sync_mapping_buffers(dst_inode->i_mapping);
