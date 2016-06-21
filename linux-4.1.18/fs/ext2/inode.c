@@ -202,20 +202,57 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
-// TODO: size, locks, fix lists, check errors in syscall, syscall name
+// TODO: locks, fix lists
 
-static int ext2_path_to_size(struct super_block *sb, int *offsets, int depth)
+static loff_t ext2_get_full_tree_size(int depth,
+		unsigned long block_size, unsigned long addr_per_block)
 {
-	int block_size = EXT2_BLOCK_SIZE(sb);
-	int addr_per_block = EXT2_ADDR_PER_BLOCK(sb);
-	int result = 0;
+	int i;
+	loff_t res = 1;
+	for (i = 0; i < depth; ++i) {
+		res *= addr_per_block;
+	}
+	res *= block_size;
+	return res;
+}
+
+static loff_t ext2_get_partial_tree_size(int depth, int *offsets,
+		unsigned long block_size, unsigned long addr_per_block)
+{
+	loff_t res = block_size;
+	unsigned long mult = block_size;
+	while (depth > 0) {
+		res += offsets[depth] * mult;
+		mult *= addr_per_block;
+		depth--;
+	}
+	return res;
+}
+
+static loff_t ext2_path_to_size(struct super_block *sb, int *offsets)
+{
+	unsigned long block_size = EXT2_BLOCK_SIZE(sb);
+	unsigned long addr_per_block = EXT2_ADDR_PER_BLOCK(sb);
+	loff_t result = 0;
 	if (offsets[0] < EXT2_IND_BLOCK) {
 		return block_size * offsets[0];
 	}
-
+	result = block_size * (EXT2_IND_BLOCK - 1);
+	if (offsets[0] == EXT2_IND_BLOCK) {
+		result += ext2_get_partial_tree_size(1, offsets,
+											 block_size, addr_per_block);
+		return result;
+	}
+	result += ext2_get_full_tree_size(1, block_size, addr_per_block);
+	if (offsets[0] == EXT2_DIND_BLOCK) {
+		result += ext2_get_partial_tree_size(2, offsets,
+											 block_size, addr_per_block);
+		return result;
+	}
+	result += ext2_get_full_tree_size(2, block_size, addr_per_block);
+	result += ext2_get_partial_tree_size(3, offsets, block_size, addr_per_block);
+	return result;
 }
-
-
 
 static int ext2_get_shared_block_depth(struct inode *inode,
 	   int depth,
@@ -232,16 +269,21 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 	Indirect chain[4];
 	Indirect *partial;
 	int i;
-
+	loff_t size_from_offsets;
 	if (inode_info->i_cow_list_next == inode->i_ino) {
 		return 0;
 	}
+
 	// TODO: synchronization
+
+	size_from_offsets = ext2_path_to_size(inode->i_sb, offsets);
 	next_ino = inode_info->i_cow_list_next;
-	//printk(KERN_ERR "ino: %ld, next: %ld", inode->i_ino, next_ino);
 	while (next_ino != inode->i_ino) {
 		next = ext2_iget(inode->i_sb, next_ino);
 		next_info = EXT2_I(next);
+		if (size_from_offsets > next->i_size) {
+			goto next;
+		}
 		partial = ext2_get_branch(next, depth, offsets, chain, &err, 0,
 								  NULL, NULL, NULL);
 		if (err) {
@@ -253,8 +295,6 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 			return err;
 		}
 		for (i = 0; chain + i != partial; ++i) {
-			//printk(KERN_ERR "chain_to_check[%d]: %dchain[%d]: %d\n", i, chain_to_check[i].key,
-			//		i, chain[i].key);
 			if (chain[i].key == chain_to_check[i].key) {
 				/* First shared block detected */
 				if (i + 1 < res_depth) {
@@ -267,10 +307,8 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 			brelse(partial->bh);
 			partial--;
 		}
-		/* if partial != NULL, then block was not found and
-		 * therefore is not shared */
+	next:
 		next_ino = next_info->i_cow_list_next;
-		//printk(KERN_ERR "ino:%ld, next ino: %ld", inode->i_ino, next_ino);
 		iput(next);
 	}
 	if (res_depth < 5) {
@@ -797,8 +835,6 @@ static int ext2_get_blocks(struct inode *inode,
 	int count = 0;
 	ext2_fsblk_t first_block = 0;
 	int check_for_cow = create;
-
-	int i;
 
 	BUG_ON(maxblocks == 0);
 
