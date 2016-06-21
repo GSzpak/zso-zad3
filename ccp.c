@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    dst_fd = open(argv[2], O_RDWR | O_CREAT);
+    dst_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC);
     if (src_fd < 0) {
         perror("Error while opening destination file file\n");
         close(src_fd);
