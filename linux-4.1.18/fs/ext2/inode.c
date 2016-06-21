@@ -330,13 +330,17 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 	Indirect *partial;
 	int i;
 	loff_t size_from_offsets;
+	struct ext2_sb_info *ext2_sb = EXT2_SB(inode->i_sb);
+
+	size_from_offsets = ext2_path_to_size(inode->i_sb, offsets);
+
+	mutex_lock(&ext2_sb->s_cow_list_mutex);
+
 	if (inode_info->i_cow_list_next == inode->i_ino) {
+		mutex_unlock(&ext2_sb->s_cow_list_mutex);
 		return 0;
 	}
 
-	// TODO: synchronization
-
-	size_from_offsets = ext2_path_to_size(inode->i_sb, offsets);
 	next_ino = inode_info->i_cow_list_next;
 	while (next_ino != inode->i_ino) {
 		next = ext2_iget(inode->i_sb, next_ino);
@@ -352,6 +356,7 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 				partial--;
 			}
 			iput(next);
+			mutex_unlock(&ext2_sb->s_cow_list_mutex);
 			return err;
 		}
 		for (i = 0; chain + i != partial; ++i) {
@@ -371,6 +376,7 @@ static int ext2_get_shared_block_depth(struct inode *inode,
 		next_ino = next_info->i_cow_list_next;
 		iput(next);
 	}
+	mutex_unlock(&ext2_sb->s_cow_list_mutex);
 	if (res_depth < 5) {
 		return res_depth;
 	} else {
@@ -1274,10 +1280,7 @@ static Indirect *ext2_find_shared(struct inode *inode,
 		p->p--;
 	} else {
 		*top = *p->p;
-		depth = p - chain;
-		if (!ext2_is_block_shared(inode, offsets, depth)) {
-			*p->p = 0;
-		}
+		*p->p = 0;
 	}
 	write_unlock(&EXT2_I(inode)->i_meta_lock);
 
