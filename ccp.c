@@ -1,10 +1,9 @@
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <linux/kernel.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #define SYS_cow_cp 359
 
@@ -30,7 +29,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    res = syscall(359, src_fd, dst_fd) < 0);
+    res = syscall(SYS_cow_cp, src_fd, dst_fd);
     close(src_fd);
     close(dst_fd);
     if (res < 0) {

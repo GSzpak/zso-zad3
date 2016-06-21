@@ -919,11 +919,6 @@ static int ext2_get_blocks(struct inode *inode,
 	partial = ext2_get_branch(inode, depth, offsets, chain, &err, check_for_cow,
 							  &is_cow, cow_chain, &shared_block_depth);
 
-	//printk(KERN_ERR "After get_branch 1, inode %ld, is_cow %d", inode->i_ino, is_cow);
-//	for (i = 0; i < 4; ++i) {
-//		printk(KERN_ERR "chain[%d]: %p(%d) %d\n", i, chain[i].p, (int) chain[i].p, chain[i].key);
-//	}
-
 	/* Simplest case - block found, no allocation needed */
 	if (!partial) {
 		/* When COW occurs, ext2_get_branch should never return NULL */
@@ -980,7 +975,6 @@ static int ext2_get_blocks(struct inode *inode,
 		}
 		partial = ext2_get_branch(inode, depth, offsets, chain, &err, check_for_cow,
 								  &is_cow, cow_chain, &shared_block_depth);
-		//printk(KERN_ERR "After get_branch 2, inode %ld, is_cow %d", inode->i_ino, is_cow);
 		if (!partial) {
 			/* When COW occurs, ext2_get_branch should never return NULL */
 			WARN_ON(is_cow);
@@ -1669,7 +1663,7 @@ struct inode *ext2_iget(struct super_block *sb, unsigned long ino)
 		return ERR_PTR(-ENOMEM);
 	if (!(inode->i_state & I_NEW))
 		return inode;
-	printk(KERN_ERR "iget: %ld", inode->i_ino);
+
 	ei = EXT2_I(inode);
 	ei->i_block_alloc_info = NULL;
 

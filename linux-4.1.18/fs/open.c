@@ -1092,7 +1092,6 @@ SYSCALL_DEFINE2(cow_cp, unsigned int, src_fd, unsigned int, dst_fd)
 	struct ext2_inode_info *dst_ext2_inode;
 	struct ext2_sb_info *ext2_sb;
 
-	printk(KERN_ERR "COW OPEN BEGIN\n");
 	src_file = get_file_from_fd(src_fd);
 	if (IS_ERR(src_file)) {
 		return -EBADF;
