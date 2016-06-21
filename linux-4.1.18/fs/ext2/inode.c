@@ -202,6 +202,21 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
+// TODO: size, locks, fix lists, check errors in syscall, syscall name
+
+static int ext2_path_to_size(struct super_block *sb, int *offsets, int depth)
+{
+	int block_size = EXT2_BLOCK_SIZE(sb);
+	int addr_per_block = EXT2_ADDR_PER_BLOCK(sb);
+	int result = 0;
+	if (offsets[0] < EXT2_IND_BLOCK) {
+		return block_size * offsets[0];
+	}
+
+}
+
+
+
 static int ext2_get_shared_block_depth(struct inode *inode,
 	   int depth,
 	   int *offsets,
@@ -280,6 +295,7 @@ static int ext2_is_block_shared(struct inode *inode, int *offsets, int depth)
 		ret = -EIO;
 		goto cleanup;
 	}
+	depth = partial - chain + 1;
 	shared_block_depth = ext2_get_shared_block_depth(inode, depth, offsets, chain);
 	if (shared_block_depth > 0) {
 		ret = 1;
